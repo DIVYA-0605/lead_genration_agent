@@ -1,0 +1,6 @@
+streamlit
+requests
+agno
+firecrawl-py
+pydantic
+pandas

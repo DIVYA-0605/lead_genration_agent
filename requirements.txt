@@ -1,6 +1,6 @@
 streamlit
 requests
-agno
+agno==0.1.16
 firecrawl-py
 pydantic
 pandas

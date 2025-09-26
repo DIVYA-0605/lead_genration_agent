@@ -4,3 +4,4 @@ agno
 firecrawl-py
 pydantic
 pandas
+ollama

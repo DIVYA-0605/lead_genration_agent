@@ -3,6 +3,7 @@ import requests
 from agno.agent import Agent
 from agno.tools.firecrawl import FirecrawlTools
 from agno.models.ollama import Ollama
+from agno.models.openai import OpenAIChat
 from firecrawl import FirecrawlApp
 from pydantic import BaseModel, Field
 from typing import List
@@ -151,9 +152,17 @@ def format_user_info_to_flattened_json(user_info_list: List[dict]) -> List[dict]
     
     return flattened_data
 
-def create_prompt_transformation_agent(model_name: str) -> Agent:
+def create_prompt_transformation_agent(model_provider: str, model_name: str, openai_api_key: str = None) -> Agent:
+    """Create an agent with either OpenAI or Ollama model"""
+    if model_provider == "OpenAI":
+        if not openai_api_key:
+            raise ValueError("OpenAI API key is required for OpenAI models")
+        model = OpenAIChat(id=model_name, api_key=openai_api_key)
+    else:  # Ollama
+        model = Ollama(id=model_name)
+    
     return Agent(
-        model=Ollama(id=model_name),
+        model=model,
         instructions="""You are an expert at transforming detailed user queries into concise company descriptions.
 Your task is to extract the core business/product focus in 3-4 words.
 
@@ -185,13 +194,37 @@ def main():
         firecrawl_api_key = st.text_input("Firecrawl API Key", type="password", label_visibility="collapsed")
         st.caption("Get your Firecrawl API key from [Firecrawl's website](https://www.firecrawl.dev/app/api-keys)")
         
-        st.header("Ollama Model", help="Select the Ollama model to use")
-        ollama_model = st.selectbox(
-            "Ollama Model",
-            options=["llama3.2", "llama3.1", "llama2", "mistral", "codellama"],
+        st.header("Model Provider")
+        model_provider = st.selectbox(
+            "Choose Model Provider",
+            options=["Ollama", "OpenAI"],
             index=0,
             label_visibility="collapsed"
         )
+        
+        # OpenAI API Key input (only show when OpenAI is selected)
+        openai_api_key = None
+        if model_provider == "OpenAI":
+            st.header("OpenAI API Key")
+            openai_api_key = st.text_input("OpenAI API Key", type="password", label_visibility="collapsed")
+            st.caption("Get your OpenAI API key from [OpenAI's website](https://platform.openai.com/api-keys)")
+        
+        # Model selection based on provider
+        st.header(f"{model_provider} Model", help=f"Select the {model_provider} model to use")
+        if model_provider == "OpenAI":
+            model_name = st.selectbox(
+                f"{model_provider} Model",
+                options=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+                index=0,
+                label_visibility="collapsed"
+            )
+        else:  # Ollama
+            model_name = st.selectbox(
+                f"{model_provider} Model",
+                options=["llama3.2", "llama3.1", "llama2", "mistral", "codellama"],
+                index=0,
+                label_visibility="collapsed"
+            )
         
         st.header("Number of links to search")
         num_links = st.selectbox(
@@ -212,13 +245,30 @@ def main():
     )
 
     if st.button("Generate Leads"):
-        if not all([firecrawl_api_key, user_query]):
-            st.error("Please fill in the Firecrawl API key and describe what leads you're looking for.")
+        # Validation
+        required_fields = [firecrawl_api_key, user_query]
+        if model_provider == "OpenAI":
+            required_fields.append(openai_api_key)
+        
+        if not all(required_fields):
+            error_msg = "Please fill in the Firecrawl API key"
+            if model_provider == "OpenAI":
+                error_msg += ", OpenAI API key"
+            error_msg += ", and describe what leads you're looking for."
+            st.error(error_msg)
         else:
             with st.spinner("Processing your query..."):
-                transform_agent = create_prompt_transformation_agent(ollama_model)
-                company_description = transform_agent.run(f"Transform this query into a concise 3-4 word company description: {user_query}")
-                st.write("🎯 Searching for:", company_description.content)
+                try:
+                    transform_agent = create_prompt_transformation_agent(
+                        model_provider, 
+                        model_name, 
+                        openai_api_key if model_provider == "OpenAI" else None
+                    )
+                    company_description = transform_agent.run(f"Transform this query into a concise 3-4 word company description: {user_query}")
+                    st.write("🎯 Searching for:", company_description.content)
+                except Exception as e:
+                    st.error(f"Error creating AI agent: {str(e)}")
+                    return
             
             with st.spinner("Searching for relevant URLs..."):
                 urls = search_for_urls(company_description.content, firecrawl_api_key, num_links)

@@ -5,3 +5,4 @@ firecrawl-py
 pydantic
 pandas
 ollama
+openai
